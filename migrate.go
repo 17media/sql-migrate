@@ -14,7 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rubenv/sql-migrate/sqlparse"
+	"github.com/17media/sql-migrate/sqlparse"
+
 	"gopkg.in/gorp.v1"
 )
 
@@ -312,12 +313,17 @@ func ExecMax(db *sql.DB, dialect string, m MigrationSource, dir MigrationDirecti
 		}
 
 		for _, stmt := range migration.Queries {
-			if _, err := executor.Exec(stmt); err != nil {
-				if trans, ok := executor.(*gorp.Transaction); ok {
-					trans.Rollback()
-				}
+			if isAlter, query := sqlparse.ParseAlterQuery(stmt); isAlter == true {
+				commend := sqlparse.ConverToJT(query)
+				fmt.Printf("pt-online-schema-change --execute --host 127.0.0.1 --password <Password> --recursion-method none --user root %s\n", commend)
+			} else {
+				if _, err := executor.Exec(stmt); err != nil {
+					if trans, ok := executor.(*gorp.Transaction); ok {
+						trans.Rollback()
+					}
 
-				return applied, newTxError(migration, err)
+					return applied, newTxError(migration, err)
+				}
 			}
 		}
 
