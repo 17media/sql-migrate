@@ -1,7 +1,6 @@
 package sqlparse
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -32,9 +31,4 @@ func ParseAlterQuery(str string) (bool, alterQuery) {
 	}
 
 	return false, alterQuery{}
-}
-
-// ConverToJT convert query to pt-online-schema-change comment
-func ConverToJT(q alterQuery) string {
-	return fmt.Sprintf("--alter \"%s\" t=%s", q.Action, q.Table)
 }
