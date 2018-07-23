@@ -23,7 +23,7 @@ Options:
   -env="development"     Environment.
   -limit=0               Limit the number of migrations (0 = unlimited).
   -dryrun                Don't apply migrations, just print them.
-	-pt                    Using pt-online-schema-change to migration.
+  -pt                    Using pt-online-schema-change to migration.
 
 `
 	return strings.TrimSpace(helpText)

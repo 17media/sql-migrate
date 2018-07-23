@@ -23,7 +23,7 @@ Options:
   -config=dbconfig.yml   Configuration file to use.
   -env="development"     Environment.
   -dryrun                Don't apply migrations, just print them.
-	-pt                    Using pt-online-schema-change to migration.
+  -pt                    Using pt-online-schema-change to migration.
 
 `
 	return strings.TrimSpace(helpText)
