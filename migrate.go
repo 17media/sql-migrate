@@ -1,30 +1,30 @@
 package migrate
 
 import (
-	"bytes"
-	"database/sql"
-	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"os/exec"
-	"path"
-	"regexp"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
+  "bytes"
+  "database/sql"
+  "errors"
+  "fmt"
+  "io"
+  "net/http"
+  "os/exec"
+  "path"
+  "regexp"
+  "sort"
+  "strconv"
+  "strings"
+  "time"
 
-	"github.com/17media/sql-migrate/sql-config"
-	"github.com/17media/sql-migrate/sqlparse"
-	"github.com/go-sql-driver/mysql"
+  "github.com/17media/sql-migrate/sql-config"
+  "github.com/17media/sql-migrate/sqlparse"
+  "github.com/go-sql-driver/mysql"
 )
 
 type MigrationDirection int
 
 const (
-	Up MigrationDirection = iota
-	Down
+  Up MigrationDirection = iota
+  Down
 )
 
 var tableName = "gorp_migrations"
@@ -35,81 +35,81 @@ var numberPrefixRegex = regexp.MustCompile(`^(\d+).*$`)
 // transaction. It contains the relevant *Migration and notes it's Id in the
 // Error function output.
 type TxError struct {
-	Migration *Migration
-	Err       error
+  Migration *Migration
+  Err       error
 }
 
 func newTxError(migration *PlannedMigration, err error) error {
-	return &TxError{
-		Migration: migration.Migration,
-		Err:       err,
-	}
+  return &TxError{
+    Migration: migration.Migration,
+    Err:       err,
+  }
 }
 
 func (e *TxError) Error() string {
-	return e.Err.Error() + " handling " + e.Migration.Id
+  return e.Err.Error() + " handling " + e.Migration.Id
 }
 
 // Set the name of the table used to store migration info.
 //
 // Should be called before any other call such as (Exec, ExecMax, ...).
 func SetTable(name string) {
-	if name != "" {
-		tableName = name
-	}
+  if name != "" {
+    tableName = name
+  }
 }
 
 // SetSchema sets the name of a schema that the migration table be referenced.
 func SetSchema(name string) {
-	if name != "" {
-		schemaName = name
-	}
+  if name != "" {
+    schemaName = name
+  }
 }
 
 type Migration struct {
-	Id   string
-	Up   []string
-	Down []string
+  Id   string
+  Up   []string
+  Down []string
 
-	DisableTransactionUp   bool
-	DisableTransactionDown bool
+  DisableTransactionUp   bool
+  DisableTransactionDown bool
 }
 
 func (m Migration) Less(other *Migration) bool {
-	switch {
-	case m.isNumeric() && other.isNumeric() && m.VersionInt() != other.VersionInt():
-		return m.VersionInt() < other.VersionInt()
-	case m.isNumeric() && !other.isNumeric():
-		return true
-	case !m.isNumeric() && other.isNumeric():
-		return false
-	default:
-		return m.Id < other.Id
-	}
+  switch {
+  case m.isNumeric() && other.isNumeric() && m.VersionInt() != other.VersionInt():
+    return m.VersionInt() < other.VersionInt()
+  case m.isNumeric() && !other.isNumeric():
+    return true
+  case !m.isNumeric() && other.isNumeric():
+    return false
+  default:
+    return m.Id < other.Id
+  }
 }
 
 func (m Migration) isNumeric() bool {
-	return len(m.NumberPrefixMatches()) > 0
+  return len(m.NumberPrefixMatches()) > 0
 }
 
 func (m Migration) NumberPrefixMatches() []string {
-	return numberPrefixRegex.FindStringSubmatch(m.Id)
+  return numberPrefixRegex.FindStringSubmatch(m.Id)
 }
 
 func (m Migration) VersionInt() int64 {
-	v := m.NumberPrefixMatches()[1]
-	value, err := strconv.ParseInt(v, 10, 64)
-	if err != nil {
-		panic(fmt.Sprintf("Could not parse %q into int64: %s", v, err))
-	}
-	return value
+  v := m.NumberPrefixMatches()[1]
+  value, err := strconv.ParseInt(v, 10, 64)
+  if err != nil {
+    panic(fmt.Sprintf("Could not parse %q into int64: %s", v, err))
+  }
+  return value
 }
 
 type PlannedMigration struct {
-	*Migration
+  *Migration
 
-	DisableTransaction bool
-	Queries            []string
+  DisableTransaction bool
+  Queries            []string
 }
 
 type byId []*Migration
@@ -119,172 +119,172 @@ func (b byId) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
 func (b byId) Less(i, j int) bool { return b[i].Less(b[j]) }
 
 type MigrationRecord struct {
-	Id        string    `db:"id"`
-	AppliedAt time.Time `db:"applied_at"`
+  Id        string    `db:"id"`
+  AppliedAt time.Time `db:"applied_at"`
 }
 
 var MigrationDialects = map[string]gorp.Dialect{
-	"sqlite3":  gorp.SqliteDialect{},
-	"postgres": gorp.PostgresDialect{},
-	"mysql":    gorp.MySQLDialect{Engine: "InnoDB", Encoding: "UTF8"},
-	"oci8":     gorp.OracleDialect{},
+  "sqlite3":  gorp.SqliteDialect{},
+  "postgres": gorp.PostgresDialect{},
+  "mysql":    gorp.MySQLDialect{Engine: "InnoDB", Encoding: "UTF8"},
+  "oci8":     gorp.OracleDialect{},
 }
 
 type MigrationSource interface {
-	// Finds the migrations.
-	//
-	// The resulting slice of migrations should be sorted by Id.
-	FindMigrations() ([]*Migration, error)
+  // Finds the migrations.
+  //
+  // The resulting slice of migrations should be sorted by Id.
+  FindMigrations() ([]*Migration, error)
 }
 
 // A hardcoded set of migrations, in-memory.
 type MemoryMigrationSource struct {
-	Migrations []*Migration
+  Migrations []*Migration
 }
 
 var _ MigrationSource = (*MemoryMigrationSource)(nil)
 
 func (m MemoryMigrationSource) FindMigrations() ([]*Migration, error) {
-	// Make sure migrations are sorted
-	sort.Sort(byId(m.Migrations))
+  // Make sure migrations are sorted
+  sort.Sort(byId(m.Migrations))
 
-	return m.Migrations, nil
+  return m.Migrations, nil
 }
 
 // A set of migrations loaded from an http.FileServer
 
 type HttpFileSystemMigrationSource struct {
-	FileSystem http.FileSystem
+  FileSystem http.FileSystem
 }
 
 var _ MigrationSource = (*HttpFileSystemMigrationSource)(nil)
 
 func (f HttpFileSystemMigrationSource) FindMigrations() ([]*Migration, error) {
-	return findMigrations(f.FileSystem)
+  return findMigrations(f.FileSystem)
 }
 
 // A set of migrations loaded from a directory.
 type FileMigrationSource struct {
-	Dir string
+  Dir string
 }
 
 var _ MigrationSource = (*FileMigrationSource)(nil)
 
 func (f FileMigrationSource) FindMigrations() ([]*Migration, error) {
-	filesystem := http.Dir(f.Dir)
-	return findMigrations(filesystem)
+  filesystem := http.Dir(f.Dir)
+  return findMigrations(filesystem)
 }
 
 func findMigrations(dir http.FileSystem) ([]*Migration, error) {
-	migrations := make([]*Migration, 0)
+  migrations := make([]*Migration, 0)
 
-	file, err := dir.Open("/")
-	if err != nil {
-		return nil, err
-	}
+  file, err := dir.Open("/")
+  if err != nil {
+    return nil, err
+  }
 
-	files, err := file.Readdir(0)
-	if err != nil {
-		return nil, err
-	}
+  files, err := file.Readdir(0)
+  if err != nil {
+    return nil, err
+  }
 
-	for _, info := range files {
-		if strings.HasSuffix(info.Name(), ".sql") {
-			file, err := dir.Open(info.Name())
-			if err != nil {
-				return nil, fmt.Errorf("Error while opening %s: %s", info.Name(), err)
-			}
+  for _, info := range files {
+    if strings.HasSuffix(info.Name(), ".sql") {
+      file, err := dir.Open(info.Name())
+      if err != nil {
+        return nil, fmt.Errorf("Error while opening %s: %s", info.Name(), err)
+      }
 
-			migration, err := ParseMigration(info.Name(), file)
-			if err != nil {
-				return nil, fmt.Errorf("Error while parsing %s: %s", info.Name(), err)
-			}
+      migration, err := ParseMigration(info.Name(), file)
+      if err != nil {
+        return nil, fmt.Errorf("Error while parsing %s: %s", info.Name(), err)
+      }
 
-			migrations = append(migrations, migration)
-		}
-	}
+      migrations = append(migrations, migration)
+    }
+  }
 
-	// Make sure migrations are sorted
-	sort.Sort(byId(migrations))
+  // Make sure migrations are sorted
+  sort.Sort(byId(migrations))
 
-	return migrations, nil
+  return migrations, nil
 }
 
 // Migrations from a bindata asset set.
 type AssetMigrationSource struct {
-	// Asset should return content of file in path if exists
-	Asset func(path string) ([]byte, error)
+  // Asset should return content of file in path if exists
+  Asset func(path string) ([]byte, error)
 
-	// AssetDir should return list of files in the path
-	AssetDir func(path string) ([]string, error)
+  // AssetDir should return list of files in the path
+  AssetDir func(path string) ([]string, error)
 
-	// Path in the bindata to use.
-	Dir string
+  // Path in the bindata to use.
+  Dir string
 }
 
 var _ MigrationSource = (*AssetMigrationSource)(nil)
 
 func (a AssetMigrationSource) FindMigrations() ([]*Migration, error) {
-	migrations := make([]*Migration, 0)
+  migrations := make([]*Migration, 0)
 
-	files, err := a.AssetDir(a.Dir)
-	if err != nil {
-		return nil, err
-	}
+  files, err := a.AssetDir(a.Dir)
+  if err != nil {
+    return nil, err
+  }
 
-	for _, name := range files {
-		if strings.HasSuffix(name, ".sql") {
-			file, err := a.Asset(path.Join(a.Dir, name))
-			if err != nil {
-				return nil, err
-			}
+  for _, name := range files {
+    if strings.HasSuffix(name, ".sql") {
+      file, err := a.Asset(path.Join(a.Dir, name))
+      if err != nil {
+        return nil, err
+      }
 
-			migration, err := ParseMigration(name, bytes.NewReader(file))
-			if err != nil {
-				return nil, err
-			}
+      migration, err := ParseMigration(name, bytes.NewReader(file))
+      if err != nil {
+        return nil, err
+      }
 
-			migrations = append(migrations, migration)
-		}
-	}
+      migrations = append(migrations, migration)
+    }
+  }
 
-	// Make sure migrations are sorted
-	sort.Sort(byId(migrations))
+  // Make sure migrations are sorted
+  sort.Sort(byId(migrations))
 
-	return migrations, nil
+  return migrations, nil
 }
 
 // Migration parsing
 func ParseMigration(id string, r io.ReadSeeker) (*Migration, error) {
-	m := &Migration{
-		Id: id,
-	}
+  m := &Migration{
+    Id: id,
+  }
 
-	parsed, err := sqlparse.ParseMigration(r)
-	if err != nil {
-		return nil, fmt.Errorf("Error parsing migration (%s): %s", id, err)
-	}
+  parsed, err := sqlparse.ParseMigration(r)
+  if err != nil {
+    return nil, fmt.Errorf("Error parsing migration (%s): %s", id, err)
+  }
 
-	m.Up = parsed.UpStatements
-	m.Down = parsed.DownStatements
+  m.Up = parsed.UpStatements
+  m.Down = parsed.DownStatements
 
-	m.DisableTransactionUp = parsed.DisableTransactionUp
-	m.DisableTransactionDown = parsed.DisableTransactionDown
+  m.DisableTransactionUp = parsed.DisableTransactionUp
+  m.DisableTransactionDown = parsed.DisableTransactionDown
 
-	return m, nil
+  return m, nil
 }
 
 type SqlExecutor interface {
-	Exec(query string, args ...interface{}) (sql.Result, error)
-	Insert(list ...interface{}) error
-	Delete(list ...interface{}) (int64, error)
+  Exec(query string, args ...interface{}) (sql.Result, error)
+  Insert(list ...interface{}) error
+  Delete(list ...interface{}) (int64, error)
 }
 
 // Execute a set of migrations
 //
 // Returns the number of applied migrations.
 func Exec(db *sql.DB, dialect string, m MigrationSource, dir MigrationDirection) (int, error) {
-	return ExecMax(db, dialect, m, dir, 0, false)
+  return ExecMax(db, dialect, m, dir, 0, false)
 }
 
 // Execute a set of migrations
@@ -293,270 +293,270 @@ func Exec(db *sql.DB, dialect string, m MigrationSource, dir MigrationDirection)
 //
 // Returns the number of applied migrations.
 func ExecMax(db *sql.DB, dialect string, m MigrationSource, dir MigrationDirection, max int, pt bool) (int, error) {
-	env, err := sqlConfig.GetEnvironment()
-	if err != nil {
-		return 0, fmt.Errorf("Could not parse config: %s", err)
-	}
+  env, err := sqlConfig.GetEnvironment()
+  if err != nil {
+    return 0, fmt.Errorf("Could not parse config: %s", err)
+  }
 
-	mysqlConfig, _ := mysql.ParseDSN(env.DataSource)
-	migrations, dbMap, err := PlanMigration(db, dialect, m, dir, max)
-	if err != nil {
-		return 0, err
-	}
+  mysqlConfig, _ := mysql.ParseDSN(env.DataSource)
+  migrations, dbMap, err := PlanMigration(db, dialect, m, dir, max)
+  if err != nil {
+    return 0, err
+  }
 
-	// Apply migrations
-	applied := 0
-	for _, migration := range migrations {
-		var executor SqlExecutor
+  // Apply migrations
+  applied := 0
+  for _, migration := range migrations {
+    var executor SqlExecutor
 
-		if migration.DisableTransaction {
-			executor = dbMap
-		} else {
-			executor, err = dbMap.Begin()
-			if err != nil {
-				return applied, newTxError(migration, err)
-			}
-		}
+    if migration.DisableTransaction {
+      executor = dbMap
+    } else {
+      executor, err = dbMap.Begin()
+      if err != nil {
+        return applied, newTxError(migration, err)
+      }
+    }
 
-		for _, stmt := range migration.Queries {
-			if isAlter, query := sqlparse.ParseAlterQuery(stmt); pt == true && isAlter == true {
-				out, err := exec.Command("pt-online-schema-change",
-					"--execute",
-					"--host", mysqlConfig.Addr,
-					"--user", mysqlConfig.User,
-					"--password", mysqlConfig.Passwd,
-					"--alter-foreign-keys-method=rebuild_constraints",
-					"--recursion-method", "none",
-					"--alter", query.Action,
-					"--max-load", "Threads_running=100",
-					"--critical-load", "Threads_running=110",
-					fmt.Sprintf("t=%s,D=%s", query.Table, mysqlConfig.DBName)).CombinedOutput()
-				fmt.Println(string(out))
+    for _, stmt := range migration.Queries {
+      if isAlter, query := sqlparse.ParseAlterQuery(stmt); pt == true && isAlter == true {
+        out, err := exec.Command("pt-online-schema-change",
+          "--execute",
+          "--host", mysqlConfig.Addr,
+          "--user", mysqlConfig.User,
+          "--password", mysqlConfig.Passwd,
+          "--alter-foreign-keys-method=rebuild_constraints",
+          "--recursion-method", "none",
+          "--alter", query.Action,
+          "--max-load", "Threads_running=50",
+          "--critical-load", "Threads_running=100",
+          fmt.Sprintf("t=%s,D=%s", query.Table, mysqlConfig.DBName)).CombinedOutput()
+        fmt.Println(string(out))
 
-				if err != nil {
-					return applied, newTxError(migration, err)
-				}
-			} else {
-				if _, err := executor.Exec(stmt); err != nil {
-					if trans, ok := executor.(*gorp.Transaction); ok {
-						trans.Rollback()
-					}
+        if err != nil {
+          return applied, newTxError(migration, err)
+        }
+      } else {
+        if _, err := executor.Exec(stmt); err != nil {
+          if trans, ok := executor.(*gorp.Transaction); ok {
+            trans.Rollback()
+          }
 
-					return applied, newTxError(migration, err)
-				}
-			}
-		}
+          return applied, newTxError(migration, err)
+        }
+      }
+    }
 
-		switch dir {
-		case Up:
-			err = executor.Insert(&MigrationRecord{
-				Id:        migration.Id,
-				AppliedAt: time.Now(),
-			})
-			if err != nil {
-				if trans, ok := executor.(*gorp.Transaction); ok {
-					trans.Rollback()
-				}
+    switch dir {
+    case Up:
+      err = executor.Insert(&MigrationRecord{
+        Id:        migration.Id,
+        AppliedAt: time.Now(),
+      })
+      if err != nil {
+        if trans, ok := executor.(*gorp.Transaction); ok {
+          trans.Rollback()
+        }
 
-				return applied, newTxError(migration, err)
-			}
-		case Down:
-			_, err := executor.Delete(&MigrationRecord{
-				Id: migration.Id,
-			})
-			if err != nil {
-				if trans, ok := executor.(*gorp.Transaction); ok {
-					trans.Rollback()
-				}
+        return applied, newTxError(migration, err)
+      }
+    case Down:
+      _, err := executor.Delete(&MigrationRecord{
+        Id: migration.Id,
+      })
+      if err != nil {
+        if trans, ok := executor.(*gorp.Transaction); ok {
+          trans.Rollback()
+        }
 
-				return applied, newTxError(migration, err)
-			}
-		default:
-			panic("Not possible")
-		}
+        return applied, newTxError(migration, err)
+      }
+    default:
+      panic("Not possible")
+    }
 
-		if trans, ok := executor.(*gorp.Transaction); ok {
-			if err := trans.Commit(); err != nil {
-				return applied, newTxError(migration, err)
-			}
-		}
+    if trans, ok := executor.(*gorp.Transaction); ok {
+      if err := trans.Commit(); err != nil {
+        return applied, newTxError(migration, err)
+      }
+    }
 
-		applied++
-	}
+    applied++
+  }
 
-	return applied, nil
+  return applied, nil
 }
 
 // Plan a migration.
 func PlanMigration(db *sql.DB, dialect string, m MigrationSource, dir MigrationDirection, max int) ([]*PlannedMigration, *gorp.DbMap, error) {
-	dbMap, err := getMigrationDbMap(db, dialect)
-	if err != nil {
-		return nil, nil, err
-	}
+  dbMap, err := getMigrationDbMap(db, dialect)
+  if err != nil {
+    return nil, nil, err
+  }
 
-	migrations, err := m.FindMigrations()
-	if err != nil {
-		return nil, nil, err
-	}
+  migrations, err := m.FindMigrations()
+  if err != nil {
+    return nil, nil, err
+  }
 
-	var migrationRecords []MigrationRecord
-	_, err = dbMap.Select(&migrationRecords, fmt.Sprintf("SELECT * FROM %s", dbMap.Dialect.QuotedTableForQuery(schemaName, tableName)))
-	if err != nil {
-		return nil, nil, err
-	}
+  var migrationRecords []MigrationRecord
+  _, err = dbMap.Select(&migrationRecords, fmt.Sprintf("SELECT * FROM %s", dbMap.Dialect.QuotedTableForQuery(schemaName, tableName)))
+  if err != nil {
+    return nil, nil, err
+  }
 
-	// Sort migrations that have been run by Id.
-	var existingMigrations []*Migration
-	for _, migrationRecord := range migrationRecords {
-		existingMigrations = append(existingMigrations, &Migration{
-			Id: migrationRecord.Id,
-		})
-	}
-	sort.Sort(byId(existingMigrations))
+  // Sort migrations that have been run by Id.
+  var existingMigrations []*Migration
+  for _, migrationRecord := range migrationRecords {
+    existingMigrations = append(existingMigrations, &Migration{
+      Id: migrationRecord.Id,
+    })
+  }
+  sort.Sort(byId(existingMigrations))
 
-	// Get last migration that was run
-	record := &Migration{}
-	if len(existingMigrations) > 0 {
-		record = existingMigrations[len(existingMigrations)-1]
-	}
+  // Get last migration that was run
+  record := &Migration{}
+  if len(existingMigrations) > 0 {
+    record = existingMigrations[len(existingMigrations)-1]
+  }
 
-	result := make([]*PlannedMigration, 0)
+  result := make([]*PlannedMigration, 0)
 
-	// Add missing migrations up to the last run migration.
-	// This can happen for example when merges happened.
-	if len(existingMigrations) > 0 {
-		result = append(result, ToCatchup(migrations, existingMigrations, record)...)
-	}
+  // Add missing migrations up to the last run migration.
+  // This can happen for example when merges happened.
+  if len(existingMigrations) > 0 {
+    result = append(result, ToCatchup(migrations, existingMigrations, record)...)
+  }
 
-	// Figure out which migrations to apply
-	toApply := ToApply(migrations, record.Id, dir)
-	toApplyCount := len(toApply)
-	if max > 0 && max < toApplyCount {
-		toApplyCount = max
-	}
-	for _, v := range toApply[0:toApplyCount] {
+  // Figure out which migrations to apply
+  toApply := ToApply(migrations, record.Id, dir)
+  toApplyCount := len(toApply)
+  if max > 0 && max < toApplyCount {
+    toApplyCount = max
+  }
+  for _, v := range toApply[0:toApplyCount] {
 
-		if dir == Up {
-			result = append(result, &PlannedMigration{
-				Migration:          v,
-				Queries:            v.Up,
-				DisableTransaction: v.DisableTransactionUp,
-			})
-		} else if dir == Down {
-			result = append(result, &PlannedMigration{
-				Migration:          v,
-				Queries:            v.Down,
-				DisableTransaction: v.DisableTransactionDown,
-			})
-		}
-	}
+    if dir == Up {
+      result = append(result, &PlannedMigration{
+        Migration:          v,
+        Queries:            v.Up,
+        DisableTransaction: v.DisableTransactionUp,
+      })
+    } else if dir == Down {
+      result = append(result, &PlannedMigration{
+        Migration:          v,
+        Queries:            v.Down,
+        DisableTransaction: v.DisableTransactionDown,
+      })
+    }
+  }
 
-	return result, dbMap, nil
+  return result, dbMap, nil
 }
 
 // Filter a slice of migrations into ones that should be applied.
 func ToApply(migrations []*Migration, current string, direction MigrationDirection) []*Migration {
-	var index = -1
-	if current != "" {
-		for index < len(migrations)-1 {
-			index++
-			if migrations[index].Id == current {
-				break
-			}
-		}
-	}
+  var index = -1
+  if current != "" {
+    for index < len(migrations)-1 {
+      index++
+      if migrations[index].Id == current {
+        break
+      }
+    }
+  }
 
-	if direction == Up {
-		return migrations[index+1:]
-	} else if direction == Down {
-		if index == -1 {
-			return []*Migration{}
-		}
+  if direction == Up {
+    return migrations[index+1:]
+  } else if direction == Down {
+    if index == -1 {
+      return []*Migration{}
+    }
 
-		// Add in reverse order
-		toApply := make([]*Migration, index+1)
-		for i := 0; i < index+1; i++ {
-			toApply[index-i] = migrations[i]
-		}
-		return toApply
-	}
+    // Add in reverse order
+    toApply := make([]*Migration, index+1)
+    for i := 0; i < index+1; i++ {
+      toApply[index-i] = migrations[i]
+    }
+    return toApply
+  }
 
-	panic("Not possible")
+  panic("Not possible")
 }
 
 func ToCatchup(migrations, existingMigrations []*Migration, lastRun *Migration) []*PlannedMigration {
-	missing := make([]*PlannedMigration, 0)
-	for _, migration := range migrations {
-		found := false
-		for _, existing := range existingMigrations {
-			if existing.Id == migration.Id {
-				found = true
-				break
-			}
-		}
-		if !found && migration.Less(lastRun) {
-			missing = append(missing, &PlannedMigration{
-				Migration:          migration,
-				Queries:            migration.Up,
-				DisableTransaction: migration.DisableTransactionUp,
-			})
-		}
-	}
-	return missing
+  missing := make([]*PlannedMigration, 0)
+  for _, migration := range migrations {
+    found := false
+    for _, existing := range existingMigrations {
+      if existing.Id == migration.Id {
+        found = true
+        break
+      }
+    }
+    if !found && migration.Less(lastRun) {
+      missing = append(missing, &PlannedMigration{
+        Migration:          migration,
+        Queries:            migration.Up,
+        DisableTransaction: migration.DisableTransactionUp,
+      })
+    }
+  }
+  return missing
 }
 
 func GetMigrationRecords(db *sql.DB, dialect string) ([]*MigrationRecord, error) {
-	dbMap, err := getMigrationDbMap(db, dialect)
-	if err != nil {
-		return nil, err
-	}
+  dbMap, err := getMigrationDbMap(db, dialect)
+  if err != nil {
+    return nil, err
+  }
 
-	var records []*MigrationRecord
-	query := fmt.Sprintf("SELECT * FROM %s ORDER BY id ASC", dbMap.Dialect.QuotedTableForQuery(schemaName, tableName))
-	_, err = dbMap.Select(&records, query)
-	if err != nil {
-		return nil, err
-	}
+  var records []*MigrationRecord
+  query := fmt.Sprintf("SELECT * FROM %s ORDER BY id ASC", dbMap.Dialect.QuotedTableForQuery(schemaName, tableName))
+  _, err = dbMap.Select(&records, query)
+  if err != nil {
+    return nil, err
+  }
 
-	return records, nil
+  return records, nil
 }
 
 func getMigrationDbMap(db *sql.DB, dialect string) (*gorp.DbMap, error) {
-	d, ok := MigrationDialects[dialect]
-	if !ok {
-		return nil, fmt.Errorf("Unknown dialect: %s", dialect)
-	}
+  d, ok := MigrationDialects[dialect]
+  if !ok {
+    return nil, fmt.Errorf("Unknown dialect: %s", dialect)
+  }
 
-	// When using the mysql driver, make sure that the parseTime option is
-	// configured, otherwise it won't map time columns to time.Time. See
-	// https://github.com/rubenv/sql-migrate/issues/2
-	if dialect == "mysql" {
-		var out *time.Time
-		err := db.QueryRow("SELECT NOW()").Scan(&out)
-		if err != nil {
-			if err.Error() == "sql: Scan error on column index 0: unsupported driver -> Scan pair: []uint8 -> *time.Time" ||
-				err.Error() == "sql: Scan error on column index 0: unsupported Scan, storing driver.Value type []uint8 into type *time.Time" {
-				return nil, errors.New(`Cannot parse dates.
+  // When using the mysql driver, make sure that the parseTime option is
+  // configured, otherwise it won't map time columns to time.Time. See
+  // https://github.com/rubenv/sql-migrate/issues/2
+  if dialect == "mysql" {
+    var out *time.Time
+    err := db.QueryRow("SELECT NOW()").Scan(&out)
+    if err != nil {
+      if err.Error() == "sql: Scan error on column index 0: unsupported driver -> Scan pair: []uint8 -> *time.Time" ||
+        err.Error() == "sql: Scan error on column index 0: unsupported Scan, storing driver.Value type []uint8 into type *time.Time" {
+        return nil, errors.New(`Cannot parse dates.
 
 Make sure that the parseTime option is supplied to your database connection.
 Check https://github.com/go-sql-driver/mysql#parsetime for more info.`)
-			} else {
-				return nil, err
-			}
-		}
-	}
+      } else {
+        return nil, err
+      }
+    }
+  }
 
-	// Create migration database map
-	dbMap := &gorp.DbMap{Db: db, Dialect: d}
-	dbMap.AddTableWithNameAndSchema(MigrationRecord{}, schemaName, tableName).SetKeys(false, "Id")
-	//dbMap.TraceOn("", log.New(os.Stdout, "migrate: ", log.Lmicroseconds))
+  // Create migration database map
+  dbMap := &gorp.DbMap{Db: db, Dialect: d}
+  dbMap.AddTableWithNameAndSchema(MigrationRecord{}, schemaName, tableName).SetKeys(false, "Id")
+  //dbMap.TraceOn("", log.New(os.Stdout, "migrate: ", log.Lmicroseconds))
 
-	err := dbMap.CreateTablesIfNotExists()
-	if err != nil {
-		return nil, err
-	}
+  err := dbMap.CreateTablesIfNotExists()
+  if err != nil {
+    return nil, err
+  }
 
-	return dbMap, nil
+  return dbMap, nil
 }
 
 // TODO: Run migration + record insert in transaction.
