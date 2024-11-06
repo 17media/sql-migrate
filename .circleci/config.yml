@@ -1,0 +1,12 @@
+version: '2.1'
+orbs:
+  gcp-gcr: circleci/gcp-gcr@0.16.3
+jobs:
+  build:
+    executor: gcp-gcr/default
+    steps:
+      - checkout
+      - gcp-gcr/gcr-auth
+      - run:
+          command: |
+            ./build.sh
