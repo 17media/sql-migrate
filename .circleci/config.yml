@@ -2,7 +2,7 @@ version: '2.1'
 orbs:
   gcp-gcr: circleci/gcp-gcr@0.16.3
 jobs:
-  build:
+  build-image:
     executor: gcp-gcr/default
     steps:
       - checkout
@@ -10,3 +10,12 @@ jobs:
       - run:
           command: |
             ./build.sh
+
+workflows:
+  publish:
+    jobs:
+      - build-image:
+          filters:
+            branches:
+              only:
+                - master
